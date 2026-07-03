@@ -1,0 +1,6 @@
+StegoRSA
+Cryptography
+Easy
+100 pts
+by Yahaya Meddy
+A message has been encrypted using RSA. The public key is gone… but someone might have been careless with the private key. Can you recover it and decrypt the message?
