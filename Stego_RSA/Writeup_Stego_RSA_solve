@@ -1,0 +1,270 @@
+Stego_RSA Beginner CTF Writeup
+
+Challenge Name: Stego_RSA
+Category: Crypto
+Solved Flag: picoCTF{rs4_k3y_1n_1mg_0a64c2f9}
+
+Files Given:
+1. image.jpg
+2. flag.enc
+
+
+1. First Observation
+
+At first, I checked the file types:
+
+file flag.enc
+file image.jpg
+
+The flag.enc file showed:
+
+flag.enc: data
+
+This means the file is just raw/binary data. It was not readable text.
+
+When I tried:
+
+cat flag.enc
+
+the output was unreadable binary characters.
+
+This was expected because .enc usually means “encrypted”. So I understood that flag.enc was probably an encrypted version of the flag.
+
+
+2. Small Mistake I Made
+
+I tried:
+
+xxd flag
+
+But this gave an error:
+
+xxd: flag: No such file or directory
+
+The mistake was simple: the file was not named “flag”. It was named “flag.enc”.
+
+So the correct command was:
+
+xxd flag.enc
+
+This showed the encrypted file in hexadecimal form.
+
+At this point, I could see the encrypted data, but I still could not decrypt it because I did not have the key yet.
+
+
+3. Checking the Image
+
+Since the challenge name was Stego_RSA, I knew there were probably two parts:
+
+Stego = something hidden inside the image
+RSA   = encryption/decryption using RSA
+
+So I checked the image:
+
+file image.jpg
+
+The output showed something very important:
+
+comment: "2d2d2d2d2d424547494e2050524956415445204b45592d2d2d2d2d..."
+
+This was suspicious because the image had a JPEG comment section containing a long hex string.
+
+This means we did use the image, but not by looking at the picture visually. We used the image as a container. The secret data was hidden inside the JPEG metadata/comment.
+
+
+4. Decoding the Hidden Hex
+
+The hex string started with:
+
+2d2d2d2d2d424547494e2050524956415445204b45592d2d2d2d2d
+
+After decoding it from hex, it became:
+
+-----BEGIN PRIVATE KEY-----
+
+This was the turning point.
+
+It meant the image was hiding a private key inside its metadata.
+
+
+5. Why We Thought It Was RSA
+
+There were several clues that told us this was RSA:
+
+First, the challenge name was Stego_RSA.
+
+Second, the file flag.enc looked like encrypted binary data.
+
+Third, the image contained a private key.
+
+The private key started like this:
+
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKY...
+
+Even though the header said:
+
+-----BEGIN PRIVATE KEY-----
+
+instead of:
+
+-----BEGIN RSA PRIVATE KEY-----
+
+it could still be an RSA private key.
+
+This is because there are different PEM key formats.
+
+“BEGIN RSA PRIVATE KEY” is a traditional RSA-specific format.
+
+“BEGIN PRIVATE KEY” is usually PKCS#8 format. In this format, the key header is generic, and the algorithm information is stored inside the key data.
+
+So the key did not directly say RSA in the header, but OpenSSL could identify it as an RSA private key.
+
+
+6. Extracting the Hidden Private Key
+
+To extract the JPEG comment properly, I used:
+
+exiftool -b -Comment image.jpg > key.hex
+
+This saved the hidden comment into a file called key.hex.
+
+Then I converted the hex into the real private key file:
+
+cat key.hex | tr -d '\n\r ' | xxd -r -p > private.pem
+
+Explanation:
+
+exiftool -b -Comment image.jpg
+extracts only the raw JPEG comment.
+
+tr -d '\n\r '
+removes extra spaces or new lines.
+
+xxd -r -p
+converts hexadecimal back into normal text/binary.
+
+private.pem
+is the final private key file.
+
+
+7. Confirming the Private Key
+
+I checked the private key with:
+
+cat private.pem | head
+
+It showed:
+
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKY...
+
+That confirmed that the hidden hex was successfully converted into a PEM private key.
+
+I could also verify it with:
+
+openssl pkey -in private.pem -text -noout
+
+This would show RSA key details like modulus, public exponent, private exponent, primes, etc.
+
+
+8. Decrypting the Encrypted Flag
+
+Now I had:
+
+flag.enc     = encrypted flag
+private.pem  = RSA private key
+
+So I used OpenSSL to decrypt the file:
+
+openssl pkeyutl -decrypt -inkey private.pem -in flag.enc -out flag.txt -pkeyopt rsa_padding_mode:pkcs1
+
+Then I read the output:
+
+cat flag.txt
+
+The decrypted flag was:
+
+picoCTF{rs4_k3y_1n_1mg_0a64c2f9}
+
+
+9. Why This Was Tagged Crypto Even Though It Felt Like Stego
+
+The challenge was tagged crypto because the final flag was encrypted using RSA.
+
+But the RSA private key was hidden inside the image metadata, so the first part felt like steganography.
+
+The full flow was:
+
+Stego part:
+image.jpg → JPEG comment → hex → private.pem
+
+Crypto part:
+private.pem + flag.enc → RSA decrypt → flag
+
+So this was actually a mixed challenge.
+
+It used steganography to hide the RSA key, and cryptography to encrypt the flag.
+
+
+10. Main Concept Learned
+
+The most important lesson:
+
+If the RSA private key is leaked, RSA encryption becomes useless.
+
+In RSA:
+
+Public key  = used to encrypt
+Private key = used to decrypt
+
+So if someone hides or accidentally leaks the private key, anyone who finds it can decrypt the encrypted data.
+
+In this challenge, the private key was hidden inside the image comment, so once I found it, the RSA encryption was broken.
+
+
+11. Commands Used
+
+file flag.enc
+file image.jpg
+
+cat flag.enc
+
+xxd flag.enc
+
+exiftool -b -Comment image.jpg > key.hex
+
+cat key.hex | tr -d '\n\r ' | xxd -r -p > private.pem
+
+cat private.pem | head
+
+openssl pkey -in private.pem -text -noout
+
+openssl pkeyutl -decrypt -inkey private.pem -in flag.enc -out flag.txt -pkeyopt rsa_padding_mode:pkcs1
+
+cat flag.txt
+
+
+12. Final Summary
+
+At first, flag.enc was unreadable because it was encrypted.
+
+Then I checked image.jpg and found a suspicious hex string inside the JPEG comment.
+
+After decoding the hex, I found a private key.
+
+Although the key header said “BEGIN PRIVATE KEY”, it was still an RSA private key in PKCS#8 format.
+
+Using that private key, I decrypted flag.enc and got the flag.
+
+Final flag:
+
+picoCTF{rs4_k3y_1n_1mg_0a64c2f9}
+
+
+Final takeaway:
+
+Always check metadata in stego-style challenges.
+Always check file names and extensions carefully.
+If a private key is leaked, encrypted RSA data can be decrypted.
+Crypto and stego can appear together in one challenge.
